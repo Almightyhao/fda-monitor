@@ -3,8 +3,8 @@ name: FDA Monitor Automation
 # 觸發時機
 on:
   schedule:
-    # 每天台灣時間早上 8 點 (UTC 時間 00:00)
-    - cron: '0 0 * * *'
+    # 台灣時間 00:00 = UTC 16:00
+    - cron: '0 16 * * *'
   # 允許手動按按鈕執行
   workflow_dispatch:
 
