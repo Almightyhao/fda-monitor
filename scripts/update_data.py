@@ -15,11 +15,14 @@ EXCEL_PATH = os.path.join("public", "drugs.xlsx")
 JSON_DB_PATH = os.path.join("public", "data.json")
 BASE_URL = "https://mcp.fda.gov.tw"
 
+# ... (前面的 import 不變) ...
+
 def fetch_fda_content(license_id):
     """
-    核心功能：輸入許可證號，回傳該藥品的仿單文字內容。
+    智慧雙引擎：
+    1. 優先嘗試抓取「電子仿單」(HTML 文字)。
+    2. 如果沒有電子仿單，則啟動「PDF 引擎」下載並解析。
     """
-    # 1. 編碼許可證號 (處理中文網址)
     safe_license = urllib.parse.quote(license_id)
     url = f"{BASE_URL}/im_detail_1/{safe_license}"
     
@@ -30,44 +33,77 @@ def fetch_fda_content(license_id):
     print(f"   正在檢查: {license_id} ...")
     
     try:
-        # 2. 請求網頁
-        res = requests.get(url, headers=headers, timeout=10)
+        res = requests.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
-            return f"錯誤: 無法連線至 FDA (Code {res.status_code})"
+            return f"錯誤: 無法連線 (Code {res.status_code})"
             
         soup = BeautifulSoup(res.text, 'html.parser')
+
+        # === 引擎 A：電子仿單偵測 (針對新藥) ===
+        # 邏輯：檢查頁面上是否有「詳細內容」的區塊，且包含關鍵字
+        # 這裡我們嘗試抓取通常存放內容的 div (需依實際狀況微調，這裡用通用的抓法)
         
-        # 3. 尋找 PDF 連結 (邏輯：含有 .pdf 且文字包含 '仿單' 或連結包含 'insert')
+        # 移除 scripts 和 styles，避免抓到亂碼
+        for script in soup(["script", "style", "nav", "footer", "header"]):
+            script.extract()
+
+        page_text = soup.get_text(separator='\n')
+        
+        # 簡單判斷：如果網頁純文字裡包含大量仿單特徵詞，就當作是電子仿單
+        keywords = ["適應症", "用法用量", "警語", "副作用"]
+        keyword_hits = sum(1 for k in keywords if k in page_text)
+        
+        # 如果命中 2 個以上關鍵字，且文字長度夠長，我們假設這就是電子仿單
+        # (注意：我們會嘗試去除前後的網站選單雜訊)
+        if keyword_hits >= 2 and len(page_text) > 500:
+            print("   -> 偵測到電子仿單 (HTML)")
+            
+            # 這裡做一個簡單的清理，只保留核心內容區塊
+            # 嘗試定位主要內容容器 (常見的 class 如 main-content, container 等)
+            # 如果找不到特定 class，就回傳清理過的全頁文字
+            content_div = soup.find('div', class_='im_detail_content') # 假設的 class 名稱
+            
+            if content_div:
+                return content_div.get_text(separator='\n').strip()
+            else:
+                # 若無法精確定位，則回傳全部文字，但用正則表達式或切片稍微清理頭尾
+                # 這裡暫時回傳全頁文字供比對 (Diff 工具會幫你濾掉沒變的 Header/Footer)
+                return page_text.strip()
+
+        # === 引擎 B：PDF 下載 (針對舊藥) ===
+        print("   -> 未發現電子仿單，切換至 PDF 模式...")
+        
         pdf_url = None
         for a in soup.find_all('a', href=True):
             href = a['href']
             text = a.get_text()
-            if '.pdf' in href.lower() and ('仿單' in text or 'insert' in href.lower()):
+            # 寬鬆判斷：只要連結是 PDF 且文字像仿單
+            if '.pdf' in href.lower() and ('仿單' in text or 'insert' in href.lower() or '說明書' in text):
                 pdf_url = urllib.parse.urljoin(BASE_URL, href)
                 break
         
         if not pdf_url:
-            # 如果找不到 PDF，嘗試抓取網頁上的純文字描述
-            return "系統提示：未找到仿單 PDF 連結，請確認衛福部網站是否僅提供圖片。"
+            return "系統提示：此藥品無電子仿單，亦無 PDF 檔可下載。"
 
-        # 4. 下載並解析 PDF
-        print(f"   -> 發現 PDF，正在解析文字...")
-        pdf_res = requests.get(pdf_url, headers=headers, timeout=20)
+        print(f"   -> 正在下載 PDF: {pdf_url} ...")
+        pdf_res = requests.get(pdf_url, headers=headers, timeout=30)
         
         full_text = []
         with pdfplumber.open(io.BytesIO(pdf_res.content)) as pdf:
             for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    full_text.append(text)
+                extracted = page.extract_text()
+                if extracted:
+                    full_text.append(extracted)
         
         if not full_text:
-            return "系統提示：PDF 為掃描檔圖片，無法提取文字。"
+            return "系統提示：PDF 為掃描圖片，無法辨識文字。"
             
         return "\n".join(full_text)
 
     except Exception as e:
         return f"讀取失敗: {str(e)}"
+
+
 
 def main():
     print("=== 仿單異動監測系統啟動 ===")
@@ -151,4 +187,5 @@ def main():
     print(f"資料已更新至 {JSON_DB_PATH}")
 
 if __name__ == "__main__":
+
     main()
