@@ -1,0 +1,70 @@
+name: FDA Monitor Automation
+
+# 觸發時機
+on:
+  schedule:
+    # 每天台灣時間早上 8 點 (UTC 時間 00:00)
+    - cron: '0 0 * * *'
+  # 允許手動按按鈕執行
+  workflow_dispatch:
+
+# 權限設定 (允許修改檔案與發布網頁)
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 下載程式碼
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2. 設定 Python 環境
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # 3. 安裝 Python 套件
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # 4. 執行爬蟲 (抓資料 + 更新 data.json)
+      - name: Run Crawler
+        run: python scripts/update_data.py
+
+      # 5. 如果 data.json 有變動，就提交(Commit)回主分支
+      # 這樣下次比對時才有舊資料
+      - name: Commit data changes
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add public/data.json
+          # 如果沒變動就不做動作，有變動才 commit
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: FDA data" && git push)
+
+      # 6. 設定 Node.js (準備打包網頁)
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      # 7. 安裝網頁套件 (加入 --legacy-peer-deps 避開 React 19 相容問題)
+      - name: Install Node dependencies
+        run: npm install --legacy-peer-deps
+
+      # 8. 打包網頁 (Build)
+      - name: Build React App
+        run: npm run build
+
+      # 9. 發布到 GitHub Pages
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist # Vite 打包後的資料夾
+          branch: gh-pages # 發布到這個分支
