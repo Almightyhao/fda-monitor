@@ -1,12 +1,10 @@
 import os
 import json
 import time
-import io
 import urllib.parse
 import pandas as pd
 import requests
-import pdfplumber
-import re  # 新增正則表達式套件
+import re
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -14,22 +12,29 @@ from datetime import datetime
 EXCEL_PATH = os.path.join("public", "drugs.xlsx")
 JSON_DB_PATH = os.path.join("public", "data.json")
 BASE_URL = "https://mcp.fda.gov.tw"
-MAX_CHAR_LIMIT = 30000  # 限制每個藥品最多存 3 萬字 (避免檔案爆炸)
+MAX_CHAR_LIMIT = 15000  # 限制每個藥品最多存 1.5 萬字 (電子仿單通常不會超過這數字)
 
 def clean_text(text):
     """
-    清理文字的強力吸塵器：去除多餘空行、HTML雜訊
+    強力清潔工：只保留有意義的仿單文字
     """
     if not text: return ""
-    # 1. 去除連續的換行和空白
+    
+    # 1. 將多個連續換行變為單一換行
     text = re.sub(r'\n\s*\n', '\n', text)
+    # 2. 去除多餘的空白
     text = re.sub(r'[ \t]+', ' ', text)
-    # 2. 強制截斷過長的內容
+    
+    # 3. 如果文字還是太長，強制截斷 (防止檔案爆炸)
     if len(text) > MAX_CHAR_LIMIT:
-        text = text[:MAX_CHAR_LIMIT] + "\n\n[...系統提示：內容過長，已自動截斷...]"
+        text = text[:MAX_CHAR_LIMIT] + "\n... (內容過長已截斷) ..."
+        
     return text.strip()
 
-def fetch_fda_content(license_id):
+def fetch_fda_html_only(license_id):
+    """
+    只抓取電子仿單 (HTML)
+    """
     safe_license = urllib.parse.quote(license_id)
     url = f"{BASE_URL}/im_detail_1/{safe_license}"
     
@@ -40,65 +45,52 @@ def fetch_fda_content(license_id):
     print(f"   檢查: {license_id} ...")
     
     try:
-        res = requests.get(url, headers=headers, timeout=20)
+        res = requests.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
-            return f"錯誤: Code {res.status_code}"
+            return f"連線錯誤 (Code {res.status_code})"
             
         soup = BeautifulSoup(res.text, 'html.parser')
 
-        # === 引擎 A：電子仿單偵測 ===
-        # 移除所有可能的干擾元素
-        for script in soup(["script", "style", "nav", "footer", "header", "svg", "img", "iframe"]):
-            script.extract()
+        # 1. 移除網頁上的雜訊 (導覽列、頁尾、腳本、樣式)
+        # 這一步非常重要，能大幅減少檔案大小
+        for junk in soup(["script", "style", "nav", "footer", "header", "noscript", "iframe", "svg"]):
+            junk.extract()
 
-        # 嘗試只抓取主要內容區塊 (根據經驗觀察)
+        # 2. 鎖定內容區塊
+        # 衛福部網站通常將內容放在 class="im_detail_content" 或類似的容器中
+        # 如果找不到，我們就抓 body，但前面已經清除了大部分雜訊
         content_div = soup.find('div', class_='im_detail_content')
+        
         if not content_div:
-            # 如果找不到專屬區塊，就抓 body
+            # 嘗試另一個常見的容器 class (以防改版)
+            content_div = soup.find('div', class_='container')
+        
+        # 如果還是找不到特定容器，就用整個 body
+        if not content_div:
             content_div = soup.body
 
-        if content_div:
-            page_text = content_div.get_text(separator='\n')
-            
-            # 判斷是否為有效內容
-            keywords = ["適應症", "用法用量", "警語", "副作用"]
-            if sum(1 for k in keywords if k in page_text) >= 2:
-                print("   -> 抓取電子仿單")
-                return clean_text(page_text)
+        if not content_div:
+            return "無法解析網頁結構"
 
-        # === 引擎 B：PDF 下載 ===
-        # print("   -> 無電子仿單，嘗試 PDF...") # 簡化 log
+        # 3. 提取文字
+        page_text = content_div.get_text(separator='\n')
         
-        pdf_url = None
-        for a in soup.find_all('a', href=True):
-            href = a['href']
-            text = a.get_text()
-            if '.pdf' in href.lower() and ('仿單' in text or 'insert' in href.lower() or '說明書' in text):
-                pdf_url = urllib.parse.urljoin(BASE_URL, href)
-                break
+        # 4. 驗證是否真的有仿單內容 (避免抓到「查無資料」的空頁面)
+        # 檢查是否包含關鍵字
+        keywords = ["適應症", "用法用量", "警語", "副作用", "禁忌", "交互作用", "劑型"]
+        hit_count = sum(1 for k in keywords if k in page_text)
         
-        if not pdf_url:
-            return "無電子仿單或 PDF。"
-
-        # 下載 PDF
-        pdf_res = requests.get(pdf_url, headers=headers, timeout=30)
-        full_text = []
-        with pdfplumber.open(io.BytesIO(pdf_res.content)) as pdf:
-            for page in pdf.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    full_text.append(extracted)
-        
-        if not full_text:
-            return "PDF 為掃描檔，無法識別。"
-            
-        return clean_text("\n".join(full_text))
+        if hit_count >= 1:
+            # 是一個有效的電子仿單
+            return clean_text(page_text)
+        else:
+            return "此藥品無電子仿單資料 (可能僅有 PDF)"
 
     except Exception as e:
-        return f"失敗: {str(e)}"
+        return f"讀取失敗: {str(e)}"
 
 def main():
-    print("=== 仿單監測系統 (輕量版) ===")
+    print("=== 電子仿單監測系統 (HTML Only) ===")
     
     if not os.path.exists(EXCEL_PATH):
         print(f"找不到 {EXCEL_PATH}")
@@ -108,19 +100,20 @@ def main():
         df = pd.read_excel(EXCEL_PATH)
         df['許可證字號'] = df['許可證字號'].astype(str).str.strip()
     except Exception as e:
-        print(f"Excel 錯誤: {e}")
+        print(f"Excel 讀取失敗: {e}")
         return
 
-    # 讀取舊資料
-    old_items = {}
+    # 讀取舊資料庫 (如果檔案太大壞掉，就重開一個)
     if os.path.exists(JSON_DB_PATH):
         try:
             with open(JSON_DB_PATH, 'r', encoding='utf-8') as f:
                 db = json.load(f)
                 old_items = {item['license']: item for item in db['items']}
         except:
-            print("舊資料庫損毀或過大，將建立新資料庫。")
+            print("舊資料庫損毀或格式不符，將建立新資料庫。")
             old_items = {}
+    else:
+        old_items = {}
 
     new_items_list = []
 
@@ -129,17 +122,21 @@ def main():
         drug_name = row['藥名']
         drug_code = row['院內代碼']
         
-        current_text = fetch_fda_content(lic_id)
+        # 執行新的抓取邏輯
+        current_text = fetch_fda_html_only(lic_id)
         
         old_record = old_items.get(lic_id, {})
         old_text = old_record.get('current_text', "")
         last_change = old_record.get('last_change_date', datetime.now().strftime('%Y-%m-%d'))
         
         is_changed = False
+        # 比對邏輯：只有當新舊都有文字，且不相同時才算異動
         if old_text and current_text != old_text:
-            is_changed = True
-            last_change = datetime.now().strftime('%Y-%m-%d')
-            print(f"   [!] 異動: {drug_name}")
+            # 排除掉「無電子仿單」這種系統訊息的變動
+            if "無電子仿單" not in current_text and "無電子仿單" not in old_text:
+                is_changed = True
+                last_change = datetime.now().strftime('%Y-%m-%d')
+                print(f"   [!] 發現異動: {drug_name}")
         
         if not old_text:
             old_text = current_text 
@@ -155,20 +152,17 @@ def main():
             "last_change_date": last_change
         })
         
-        time.sleep(1)
+        # 稍微暫停一下，對伺服器溫柔一點
+        time.sleep(0.5)
 
     final_data = {
         "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "items": new_items_list
     }
     
-    # 存檔前檢查大小
+    # 檢查最終檔案大小
     json_str = json.dumps(final_data, ensure_ascii=False, indent=2)
-    size_mb = len(json_str.encode('utf-8')) / (1024 * 1024)
-    print(f"資料庫大小預估: {size_mb:.2f} MB")
-    
-    if size_mb > 95:
-        print("警告：檔案仍超過 95MB，請減少 Excel 藥品數量！")
+    print(f"資料庫大小預估: {len(json_str)/1024/1024:.2f} MB")
 
     with open(JSON_DB_PATH, 'w', encoding='utf-8') as f:
         f.write(json_str)
