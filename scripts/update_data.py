@@ -15,7 +15,7 @@ BASE_URL = "https://mcp.fda.gov.tw"
 
 # ✅ 放寬限制：改成 3 萬字，讓您能看到完整內容
 # 透過下面的「空間節省邏輯」，我們有本錢存這麼多字！
-MAX_CHAR_LIMIT = 30000 
+MAX_CHAR_LIMIT = 20000 
 
 def clean_text(text):
     """
@@ -187,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
