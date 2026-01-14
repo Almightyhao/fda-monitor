@@ -12,7 +12,7 @@ from datetime import datetime
 EXCEL_PATH = os.path.join("public", "drugs.xlsx")
 JSON_DB_PATH = os.path.join("public", "data.json")
 BASE_URL = "https://mcp.fda.gov.tw"
-MAX_CHAR_LIMIT = 15000  # 限制每個藥品最多存 1.5 萬字 (電子仿單通常不會超過這數字)
+# MAX_CHAR_LIMIT = 15000  # 限制每個藥品最多存 1.5 萬字 (電子仿單通常不會超過這數字)
 
 def clean_text(text):
     """
@@ -26,8 +26,8 @@ def clean_text(text):
     text = re.sub(r'[ \t]+', ' ', text)
     
     # 3. 如果文字還是太長，強制截斷 (防止檔案爆炸)
-    if len(text) > MAX_CHAR_LIMIT:
-        text = text[:MAX_CHAR_LIMIT] + "\n... (內容過長已截斷) ..."
+    # if len(text) > MAX_CHAR_LIMIT:
+    #     text = text[:MAX_CHAR_LIMIT] + "\n... (內容過長已截斷) ..."
         
     return text.strip()
 
@@ -190,3 +190,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
