@@ -19,34 +19,37 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. 下載程式碼
+      # 1. 下載程式碼 (必須保留)
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # 👇👇👇 --- 暫時註解掉 Python 爬蟲區塊 (開始) --- 👇👇👇
       # 2. 設定 Python 環境
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
+      # - name: Set up Python
+      #   uses: actions/setup-python@v4
+      #   with:
+      #     python-version: '3.9'
 
       # 3. 安裝 Python 套件
-      - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
+      # - name: Install Python dependencies
+      #   run: |
+      #     pip install -r requirements.txt
 
       # 4. 執行爬蟲 (抓資料 + 更新 data.json)
-      - name: Run Crawler
-        run: python scripts/update_data.py
+      # - name: Run Crawler
+      #   run: python scripts/update_data.py
 
       # 5. 如果 data.json 有變動，就提交(Commit)回主分支
-      # 這樣下次比對時才有舊資料
-      - name: Commit data changes
-        run: |
-          git config --global user.name 'GitHub Action'
-          git config --global user.email 'action@github.com'
-          git add public/data.json
-          # 如果沒變動就不做動作，有變動才 commit
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: FDA data" && git push)
+      # - name: Commit data changes
+      #   run: |
+      #     git config --global user.name 'GitHub Action'
+      #     git config --global user.email 'action@github.com'
+      #     git add public/data.json
+      #     # 如果沒變動就不做動作，有變動才 commit
+      #     git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: FDA data" && git push)
+      # 👆👆👆 --- 暫時註解掉 Python 爬蟲區塊 (結束) --- 👆👆👆
+
+      # 👇👇👇 --- 以下網頁打包區塊必須保留！ --- 👇👇👇
 
       # 6. 設定 Node.js (準備打包網頁)
       - name: Set up Node.js
@@ -61,6 +64,9 @@ jobs:
       # 8. 打包網頁 (Build)
       - name: Build React App
         run: npm run build
+        env:
+           # 確保網頁知道它在 GitHub 上 (這行很重要)
+           VITE_BASE_URL: /fda-monitor/ 
 
       # 9. 發布到 GitHub Pages
       - name: Deploy to GitHub Pages
