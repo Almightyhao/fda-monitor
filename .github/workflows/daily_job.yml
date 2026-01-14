@@ -39,7 +39,7 @@ jobs:
       - name: Run Crawler
         run: python scripts/update_data.py
 
-      5. 如果 data.json 有變動，就提交(Commit)回主分支
+      # 5. 如果 data.json 有變動，就提交(Commit)回主分支
       - name: Commit data changes
         run: |
           git config --global user.name 'GitHub Action'
