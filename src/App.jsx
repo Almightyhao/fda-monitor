@@ -23,12 +23,33 @@ function App() {
 
   // 1. 讀取 Python 產生的資料
   useEffect(() => {
-    fetch('/data.json')
-      .then(res => res.json())
-      .then(jsonData => setData(jsonData))
-      .catch(err => {
-        console.error("找不到資料，請確認是否已執行 Python 腳本", err);
-        setData({ items: [], last_updated: '尚無資料 (請先執行 update_data.py)' });
+    // 💡 修正重點：使用 Vite 提供的環境變數自動取得正確路徑
+    // import.meta.env.BASE_URL 會自動讀取 vite.config.js 裡的 base 設定
+    // 在本機它是 '/'，在 GitHub 它是 '/fda-monitor/' (若設定正確)
+    const dataUrl = `${import.meta.env.BASE_URL}data.json`;
+
+    console.log("正在讀取資料路徑:", dataUrl); // 除錯用，按 F12 看 Console
+
+    fetch(dataUrl)
+      .then((res) => {
+        if (!res.ok) {
+            // 如果還是 404，這裡會噴錯
+            throw new Error(`找不到檔案 (Status: ${res.status})`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        console.log("成功抓到資料:", data);
+        
+        // 確保資料結構正確 (您的 JSON 是包在 items 裡面)
+        if (data.items) {
+            setDrugs(data.items);
+        } else if (Array.isArray(data)) {
+            setDrugs(data);
+        }
+      })
+      .catch((error) => {
+        console.error("讀取失敗:", error);
       });
   }, []);
 
