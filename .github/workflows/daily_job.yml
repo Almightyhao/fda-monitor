@@ -23,22 +23,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 👇👇👇 --- 暫時註解掉 Python 爬蟲區塊 (開始) --- 👇👇👇
-      # 2. 設定 Python 環境
+      # 2. 設定 Python 環境 (已恢復)
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # 3. 安裝 Python 套件
+      # 3. 安裝 Python 套件 (已恢復)
       - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
 
-      # 4. 執行爬蟲 (抓資料 + 更新 data.json)
+      # 4. 執行爬蟲 (抓資料 + 更新 data.json) (已恢復)
       - name: Run Crawler
         run: python scripts/update_data.py
 
+      # 5. 如果 data.json 有變動，就提交(Commit)回主分支 (已恢復)
+      # 👇 注意：下面這一行我幫您補上了 # 號
       # 5. 如果 data.json 有變動，就提交(Commit)回主分支
       - name: Commit data changes
         run: |
@@ -47,7 +48,6 @@ jobs:
           git add public/data.json
           # 如果沒變動就不做動作，有變動才 commit
           git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update: FDA data" && git push)
-      # 👆👆👆 --- 暫時註解掉 Python 爬蟲區塊 (結束) --- 👆👆👆
 
       # 👇👇👇 --- 以下網頁打包區塊必須保留！ --- 👇👇👇
 
@@ -55,7 +55,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 20  # 👈 重要！已幫您改成 20，不然等一下網頁打包會失敗
 
       # 7. 安裝網頁套件 (加入 --legacy-peer-deps 避開 React 19 相容問題)
       - name: Install Node dependencies
