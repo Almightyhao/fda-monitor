@@ -18,38 +18,43 @@ const diffStyles = {
 };
 
 function App() {
+  // 狀態宣告：data 是一個物件，包含 items (藥品陣列) 和 last_updated (時間)
   const [data, setData] = useState({ items: [], last_updated: '載入中...' });
   const [viewMode, setViewMode] = useState('all'); // 'all' 或 'changed'
 
   // 1. 讀取 Python 產生的資料
   useEffect(() => {
-    // 💡 修正重點：使用 Vite 提供的環境變數自動取得正確路徑
-    // import.meta.env.BASE_URL 會自動讀取 vite.config.js 裡的 base 設定
-    // 在本機它是 '/'，在 GitHub 它是 '/fda-monitor/' (若設定正確)
+    // 💡 使用 Vite 環境變數取得正確路徑 (本機為 '/'，GitHub 為 '/fda-monitor/')
     const dataUrl = `${import.meta.env.BASE_URL}data.json`;
 
-    console.log("正在讀取資料路徑:", dataUrl); // 除錯用，按 F12 看 Console
+    console.log("正在讀取資料路徑:", dataUrl);
 
     fetch(dataUrl)
       .then((res) => {
         if (!res.ok) {
-            // 如果還是 404，這裡會噴錯
             throw new Error(`找不到檔案 (Status: ${res.status})`);
         }
         return res.json();
       })
-      .then((data) => {
-        console.log("成功抓到資料:", data);
+      .then((fetchedData) => {
+        console.log("成功抓到資料:", fetchedData);
         
-        // 確保資料結構正確 (您的 JSON 是包在 items 裡面)
-        if (data.items) {
-            setDrugs(data.items);
-        } else if (Array.isArray(data)) {
-            setDrugs(data);
+        // 🚨 關鍵修正區域 🚨
+        if (fetchedData.items) {
+            // 情況 A: 資料是完整物件 (包含 items 和 last_updated) -> 直接存入
+            setData(fetchedData);
+        } else if (Array.isArray(fetchedData)) {
+            // 情況 B: 資料只是純陣列 (舊版或異常) -> 手動包裝成物件，避免網頁壞掉
+            setData({ 
+                items: fetchedData, 
+                last_updated: '無法取得更新時間' 
+            });
         }
       })
       .catch((error) => {
         console.error("讀取失敗:", error);
+        // 如果讀取失敗，更新狀態讓使用者知道
+        setData(prev => ({ ...prev, last_updated: '讀取失敗，請檢查網路或檔案路徑' }));
       });
   }, []);
 
@@ -70,7 +75,7 @@ function App() {
     XLSX.writeFile(wb, `仿單異動檢查表_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  // 篩選顯示
+  // 篩選顯示 (根據 viewMode 決定顯示全部還是只顯示異動)
   const displayItems = viewMode === 'changed' 
     ? data.items.filter(i => i.is_changed) 
     : data.items;
@@ -107,6 +112,7 @@ function App() {
       {displayItems.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>
           <h3>沒有符合條件的項目</h3>
+          {viewMode === 'changed' && <p>目前沒有偵測到任何藥品仿單異動，這是好事！</p>}
         </div>
       ) : (
         displayItems.map((item) => (
