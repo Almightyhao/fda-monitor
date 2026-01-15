@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import * as XLSX from 'xlsx';
 
-// --- 樣式設定：讓比對畫面更清楚 ---
+// --- 樣式設定 ---
 const diffStyles = {
   variables: {
     light: {
@@ -18,15 +18,13 @@ const diffStyles = {
 };
 
 function App() {
-  // 狀態宣告：data 是一個物件，包含 items (藥品陣列) 和 last_updated (時間)
+  // 狀態宣告
   const [data, setData] = useState({ items: [], last_updated: '載入中...' });
-  const [viewMode, setViewMode] = useState('all'); // 'all' 或 'changed'
+  const [viewMode, setViewMode] = useState('all'); // 雖然這裡叫 'all'，但因為資料源被過濾過，所以其實只會顯示異動的
 
-  // 1. 讀取 Python 產生的資料
+  // 1. 讀取資料 (加上前端強制過濾)
   useEffect(() => {
-    // 💡 使用 Vite 環境變數取得正確路徑 (本機為 '/'，GitHub 為 '/fda-monitor/')
     const dataUrl = `${import.meta.env.BASE_URL}data.json`;
-
     console.log("正在讀取資料路徑:", dataUrl);
 
     fetch(dataUrl)
@@ -37,23 +35,34 @@ function App() {
         return res.json();
       })
       .then((fetchedData) => {
-        console.log("成功抓到資料:", fetchedData);
+        console.log("成功抓到資料，開始進行前端過濾...");
         
-        // 🚨 關鍵修正區域 🚨
+        // 🚨 [緊急修正區域] 🚨 
+        // 不管資料庫多大，我們在前端只取 "is_changed: true" 的項目
+        // 這樣可以避免網頁卡死，且不需要重新跑後端程式
+        
+        let allItems = [];
+        let updateTime = '無法取得更新時間';
+
         if (fetchedData.items) {
-            // 情況 A: 資料是完整物件 (包含 items 和 last_updated) -> 直接存入
-            setData(fetchedData);
+            allItems = fetchedData.items;
+            updateTime = fetchedData.last_updated;
         } else if (Array.isArray(fetchedData)) {
-            // 情況 B: 資料只是純陣列 (舊版或異常) -> 手動包裝成物件，避免網頁壞掉
-            setData({ 
-                items: fetchedData, 
-                last_updated: '無法取得更新時間' 
-            });
+            allItems = fetchedData;
         }
+
+        // ✨ 魔法在這裡：只保留有異動的藥品 ✨
+        const onlyChangedItems = allItems.filter(item => item.is_changed === true);
+
+        console.log(`過濾完成：從 ${allItems.length} 筆縮減為 ${onlyChangedItems.length} 筆`);
+
+        setData({ 
+            items: onlyChangedItems, 
+            last_updated: updateTime 
+        });
       })
       .catch((error) => {
         console.error("讀取失敗:", error);
-        // 如果讀取失敗，更新狀態讓使用者知道
         setData(prev => ({ ...prev, last_updated: '讀取失敗，請檢查網路或檔案路徑' }));
       });
   }, []);
@@ -75,7 +84,8 @@ function App() {
     XLSX.writeFile(wb, `仿單異動檢查表_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  // 篩選顯示 (根據 viewMode 決定顯示全部還是只顯示異動)
+  // 篩選顯示
+  // 因為 data.items 已經只剩異動的了，所以這裡 filter 其實是多餘的，但保留邏輯沒關係
   const displayItems = viewMode === 'changed' 
     ? data.items.filter(i => i.is_changed) 
     : data.items;
@@ -85,20 +95,23 @@ function App() {
       
       {/* 標題區 */}
       <header style={{ marginBottom: '30px', borderBottom: '2px solid #eee', paddingBottom: '20px' }}>
-        <h1 style={{ color: '#2c3e50' }}>💊 藥品仿單異動監測系統</h1>
+        <h1 style={{ color: '#2c3e50' }}>💊 藥品仿單異動監測系統 (僅顯示異動)</h1>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#666' }}>最後更新：{data.last_updated}</span>
           <div>
-            <button 
+            {/* 隱藏 "顯示全部" 按鈕，避免誤會，因為現在只有異動資料 */}
+            {/* <button 
               onClick={() => setViewMode('all')}
               style={{ padding: '8px 16px', marginRight: '10px', cursor: 'pointer', background: viewMode==='all'?'#007bff':'#eee', color: viewMode==='all'?'white':'black', border:'none', borderRadius:'4px' }}>
               顯示全部
-            </button>
+            </button> 
+            */}
+            
             <button 
-              onClick={() => setViewMode('changed')}
-              style={{ padding: '8px 16px', marginRight: '10px', cursor: 'pointer', background: viewMode==='changed'?'#dc3545':'#eee', color: viewMode==='changed'?'white':'black', border:'none', borderRadius:'4px' }}>
-              只看異動 ({data.items.filter(i=>i.is_changed).length})
+              style={{ padding: '8px 16px', marginRight: '10px', cursor: 'default', background: '#dc3545', color: 'white', border:'none', borderRadius:'4px' }}>
+              目前顯示異動筆數：{data.items.length}
             </button>
+
             <button 
               onClick={handleDownload}
               style={{ padding: '8px 16px', background: '#28a745', color: 'white', border: 'none', borderRadius:'4px', cursor: 'pointer' }}>
@@ -111,8 +124,7 @@ function App() {
       {/* 內容區 */}
       {displayItems.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>
-          <h3>沒有符合條件的項目</h3>
-          {viewMode === 'changed' && <p>目前沒有偵測到任何藥品仿單異動，這是好事！</p>}
+          <h3>讀取中 或 目前沒有異動項目...</h3>
         </div>
       ) : (
         displayItems.map((item) => (
