@@ -19,46 +19,63 @@ MAX_CHAR_LIMIT = 20000
 
 def clean_text(text):
     """
-    強力清潔工：只保留有意義的仿單文字，並切除後段學術資料
+    強力清潔工：只保留有意義的仿單文字
+    邏輯：切除 [10~12 章節] (藥理/動力學/臨床)，但保留 [13~15 章節] (包裝/病人須知)
     """
     if not text: return ""
     
-    # 1. 將多個連續換行變為單一換行
+    # 1. 基礎清理
     text = re.sub(r'\n\s*\n', '\n', text)
-    # 2. 去除多餘的空白
     text = re.sub(r'[ \t]+', ' ', text)
     
     # ==========================================
-    # ✂️ [修正] 手術刀切除法 (安全版) ✂️
-    # 移除了單純的文字關鍵字，避免誤刪「文中引用」的段落
+    # ✂️ [挖空手術] 設定切除的「起點」與「終點」
     # ==========================================
-    cut_off_keywords = [
-        # 只鎖定「有章節編號」的標題，確保是真正的章節開頭才切
+    
+    # 1. 定義起點：看到這些章節開始切 (10, 11, 12)
+    start_keywords = [
         "10 藥理特性", "10.藥理特性", "10. 藥理特性", "10.0 藥理特性", "拾、藥理特性",
         "11 藥物動力學", "11.藥物動力學", "11. 藥物動力學", "11.0 藥物動力學", "拾壹、藥物動力學",
         "12 臨床試驗", "12.臨床試驗", "12. 臨床試驗", "12.0 臨床試驗", "拾貳、臨床試驗"
-        # ❌ 已移除 "藥理特性", "藥物動力學特性", "臨床試驗資料" 這些危險關鍵字
     ]
     
-    earliest_cut_index = -1
-    cut_reason = ""
+    # 2. 定義終點：看到這些章節要接回來 (13, 14, 15)
+    end_keywords = [
+        "13 包裝", "13.包裝", "13. 包裝", "13.0 包裝", "拾參、包裝",
+        "14 病人", "14.病人", "14. 病人", "14.0 病人", "拾肆、病人",
+        "15 其他", "15.其他", "15. 其他", "15.0 其他", "拾伍、其他"
+    ]
     
-    for keyword in cut_off_keywords:
-        idx = text.find(keyword)
-        # 如果找到了，且比目前找到的更前面 (或還沒找到過)
-        if idx != -1:
-            # 確保不是在文章開頭就被切掉
-            if idx > 100: 
-                if earliest_cut_index == -1 or idx < earliest_cut_index:
-                    earliest_cut_index = idx
-                    cut_reason = keyword
+    # --- 步驟 A: 尋找切除起點 (earliest_start) ---
+    start_idx = -1
+    for kw in start_keywords:
+        idx = text.find(kw)
+        if idx != -1 and idx > 100: # 避開目錄區
+            if start_idx == -1 or idx < start_idx:
+                start_idx = idx
 
-    # 如果有找到切點，就執行切除
-    if earliest_cut_index != -1:
-        text = text[:earliest_cut_index]
-        text += f"\n\n--- (已省略「{cut_reason}」及後續詳細資料以節省空間) ---"
+    # --- 步驟 B: 如果有找到起點，才去把後面挖空 ---
+    if start_idx != -1:
+        # 尋找「起點之後」最早出現的終點 (earliest_end)
+        end_idx = -1
+        for kw in end_keywords:
+            idx = text.find(kw, start_idx) # 注意：只從 start_idx 之後開始找
+            if idx != -1:
+                if end_idx == -1 or idx < end_idx:
+                    end_idx = idx
+        
+        # 狀況 1: 找到了終點 (代表後面還有第 13/14/15 章) -> 執行「中間挖空」
+        if end_idx != -1:
+            part_1 = text[:start_idx]
+            part_2 = text[end_idx:]
+            text = f"{part_1}\n\n--- (已省略 10~12 章節之學術資料) ---\n\n{part_2}"
+            
+        # 狀況 2: 沒找到終點 (代表這份仿單剛好沒有 13~15 章) -> 執行「後面全切」
+        else:
+            text = text[:start_idx]
+            text += "\n\n--- (已省略後續學術及臨床資料) ---"
 
-    # 最後防線
+    # 最後防線 (萬一接回來後總長度還是爆表)
     if len(text) > MAX_CHAR_LIMIT:
         text = text[:MAX_CHAR_LIMIT] + f"\n... (內容過長，僅顯示前 {MAX_CHAR_LIMIT} 字) ..."
         
@@ -205,4 +222,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
