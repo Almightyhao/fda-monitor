@@ -2,7 +2,7 @@
 
 這是一個自動化的藥品仿單監測系統，利用 **Python 爬蟲** 定期抓取衛福部食藥署資料，並透過 **React 前端** 以視覺化方式呈現仿單內容的異動比對。系統設計重點在於「智慧清理冗長學術資料」與「極致節省儲存空間」。
 
-![Build Status](https://github.com/almightyhao/fda-monitor/actions/workflows/update_data.yml/badge.svg)
+![Build Status](https://github.com/Almightyhao/fda-monitor/actions/workflows/daily_job.yml/badge.svg)
 
 ## ✨ 主要功能
 
